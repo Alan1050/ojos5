@@ -12,6 +12,19 @@ export type EdgeAiOptions = {
  * Avoids sending heavy images over the network to Earth (CentroControl),
  * transmitting only lightweight structured telemetry.
  */
+export function isCanceledError(error: unknown): boolean {
+  if (!error) return false;
+  if (error instanceof Error) {
+    if (error.name === 'AbortError') return true;
+    const msg = error.message.toLowerCase();
+    if (msg.includes('canceled') || msg.includes('cancelled') || msg.includes('abort') || msg.includes('fetchrequestcanceledexception')) {
+      return true;
+    }
+  }
+  const str = String(error).toLowerCase();
+  return str.includes('canceled') || str.includes('cancelled') || str.includes('abort') || str.includes('fetchrequestcanceledexception');
+}
+
 export async function runEdgeVision(
   image: string,
   profile: Profile | undefined,
@@ -39,44 +52,64 @@ export async function runEdgeVision(
   const pureBase64 = image.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
   const start = performance.now();
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: options.signal || AbortSignal.timeout(20000),
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: instructions }] },
-      contents: [{
-        parts: [
-          { text: 'Describe el entorno visible y las posibles situaciones observables que convendría revisar.' },
-          { inlineData: { mimeType: 'image/jpeg', data: pureBase64 } }
-        ]
-      }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            summary: { type: 'STRING' },
-            impact: { type: 'STRING' },
-            suggestion: { type: 'STRING' },
-            observations: {
-              type: 'ARRAY',
-              items: {
-                type: 'OBJECT',
-                properties: {
-                  trigger: { type: 'STRING', enum: visualTriggers },
-                  confidence: { type: 'NUMBER' },
-                  evidence: { type: 'STRING' }
-                },
-                required: ['trigger', 'confidence', 'evidence']
+  const controller = new AbortController();
+  const timeoutMs = 35000;
+  const timer = setTimeout(() => {
+    controller.abort(new Error('TimeoutError: Tiempo de espera agotado al consultar Google AI'));
+  }, timeoutMs);
+
+  const onParentAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort(options.signal.reason);
+    else options.signal.addEventListener('abort', onParentAbort, { once: true });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: instructions }] },
+        contents: [{
+          parts: [
+            { text: 'Describe el entorno visible y las posibles situaciones observables que convendría revisar.' },
+            { inlineData: { mimeType: 'image/jpeg', data: pureBase64 } }
+          ]
+        }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              summary: { type: 'STRING' },
+              impact: { type: 'STRING' },
+              suggestion: { type: 'STRING' },
+              observations: {
+                type: 'ARRAY',
+                items: {
+                  type: 'OBJECT',
+                  properties: {
+                    trigger: { type: 'STRING', enum: visualTriggers },
+                    confidence: { type: 'NUMBER' },
+                    evidence: { type: 'STRING' }
+                  },
+                  required: ['trigger', 'confidence', 'evidence']
+                }
               }
-            }
-          },
-          required: ['summary', 'observations']
+            },
+            required: ['summary', 'observations']
+          }
         }
-      }
-    })
-  });
+      })
+    });
+  } finally {
+    clearTimeout(timer);
+    if (options.signal) {
+      options.signal.removeEventListener('abort', onParentAbort);
+    }
+  }
 
   if (!response.ok) {
     const errJson = await response.json().catch(() => null) as { error?: { message?: string } } | null;

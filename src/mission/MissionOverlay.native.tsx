@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchActiveSession, sendAction } from './client';
-import { runEdgeVision } from './client-ai';
+import { isCanceledError, runEdgeVision } from './client-ai';
 import { connectionFromFragment, interventionText, stateLabels, triggerLabels } from './protocol';
 import type { AstronautId, Connection, MentalState, ResponseAction, SessionCreated, VisualResult } from './protocol';
 import { useMission } from './useMission';
@@ -151,6 +151,9 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
             });
             setAiStatusText(`Edge AI: ${result.latencyMs ?? 0} ms · Transmitiendo telemetría…`);
           } catch (edgeErr: unknown) {
+            if (isCanceledError(edgeErr)) {
+              return;
+            }
             const retry = getRetrySeconds(edgeErr);
             if (retry) {
               cooldownUntilRef.current = Date.now() + retry * 1000;
@@ -170,7 +173,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
           setLocalError('');
         }
       } catch (e: unknown) {
-        if (!cancelled) {
+        if (!cancelled && !isCanceledError(e)) {
           const retry = getRetrySeconds(e);
           if (retry) {
             cooldownUntilRef.current = Date.now() + retry * 1000;
@@ -240,6 +243,9 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
           });
           setAiStatusText(`Edge AI: ${result.latencyMs ?? 0} ms · Transmitiendo telemetría…`);
         } catch (edgeErr: unknown) {
+          if (isCanceledError(edgeErr)) {
+            return;
+          }
           const retry = getRetrySeconds(edgeErr);
           if (retry) {
             cooldownUntilRef.current = Date.now() + retry * 1000;
@@ -255,12 +261,14 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
         await action('/vision', { astronautId: conn.astronautId, image });
       }
     } catch (e: unknown) {
-      const retry = getRetrySeconds(e);
-      if (retry) {
-        cooldownUntilRef.current = Date.now() + retry * 1000;
-        setLocalError(`Límite gratuito de Google AI (5/min). Enfriando por ${retry}s…`);
-      } else {
-        setLocalError(e instanceof Error ? e.message : 'No se pudo capturar el entorno.');
+      if (!isCanceledError(e)) {
+        const retry = getRetrySeconds(e);
+        if (retry) {
+          cooldownUntilRef.current = Date.now() + retry * 1000;
+          setLocalError(`Límite gratuito de Google AI (5/min). Enfriando por ${retry}s…`);
+        } else {
+          setLocalError(e instanceof Error ? e.message : 'No se pudo capturar el entorno.');
+        }
       }
     } finally {
       inFlightRef.current = false;
