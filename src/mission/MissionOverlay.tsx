@@ -15,14 +15,6 @@ function initialConnection(): Connection | null {
   } catch { return null; }
 }
 
-function getRetrySeconds(e: unknown): number | null {
-  if (typeof e === 'object' && e !== null && 'retryAfterSeconds' in e) {
-    const s = Number((e as { retryAfterSeconds: unknown }).retryAfterSeconds);
-    if (Number.isFinite(s) && s > 0) return s;
-  }
-  return null;
-}
-
 export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus: string; capture: () => Promise<string> }) {
   const [connection, setConnection] = useState<Connection | null>(initialConnection);
   const [activeSession, setActiveSession] = useState<SessionCreated | null>(null);
@@ -138,11 +130,6 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
 
     const sample = async () => {
       const now = Date.now();
-      if (now < cooldownUntilRef.current) {
-        const remaining = Math.ceil((cooldownUntilRef.current - now) / 1000);
-        setLocalError(`Límite de Google AI (5/min). Enfriando por ${remaining}s…`);
-        return;
-      }
       if (inFlightRef.current || now - lastExecutionRef.current < 13000) {
         return;
       }
@@ -159,48 +146,44 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
 
         let result: VisualResult | null = null;
         const sess = activeSessionRef.current;
-        if (sess?.clientAi?.apiKey) {
-          try {
+        const inCooldown = now < cooldownUntilRef.current;
+
+        try {
+          if (inCooldown) {
+            const remaining = Math.ceil((cooldownUntilRef.current - now) / 1000);
+            setAiStatusText(`🛰️ Motor Dual Activo (Inferencia local · Reintento Gemini en ${remaining}s)…`);
+            result = await runEdgeVision(image, profileRef.current, {
+              apiKey: sess?.clientAi?.apiKey,
+              model: sess?.clientAi?.model,
+              forceContingency: true,
+            });
+          } else {
             setAiStatusText('Ejecutando Edge AI en smartphone…');
             result = await runEdgeVision(image, profileRef.current, {
-              apiKey: sess.clientAi.apiKey,
-              model: sess.clientAi.model,
+              apiKey: sess?.clientAi?.apiKey,
+              model: sess?.clientAi?.model,
             });
-            setAiStatusText(`Edge AI completado (${result.latencyMs ?? 0} ms) · Transmitiendo telemetría…`);
-          } catch (edgeErr: unknown) {
-            if (isCanceledError(edgeErr)) {
-              return;
+            if (result.engine === 'dual_contingency') {
+              cooldownUntilRef.current = Date.now() + 60000;
+              setAiStatusText('🛰️ Motor Dual Activo (Inferencia local en dispositivo)…');
+            } else {
+              setAiStatusText(`✨ Edge AI Gemini (${result.latencyMs ?? 0} ms) · Transmitiendo…`);
+              cooldownUntilRef.current = 0;
             }
-            const retry = getRetrySeconds(edgeErr);
-            if (retry) {
-              cooldownUntilRef.current = Date.now() + retry * 1000;
-              setLocalError(`Límite gratuito de Google AI (5/min). Enfriando por ${retry}s…`);
-              setTimeout(() => {
-                setLocalError(prev => (prev.includes('Enfriando') ? '' : prev));
-              }, retry * 1000);
-              return;
-            }
-            console.warn('Fallo en Edge AI local, recurriendo al servidor:', edgeErr);
           }
+        } catch (edgeErr: unknown) {
+          if (isCanceledError(edgeErr)) return;
+          console.warn('Fallo inesperado, usando motor dual:', edgeErr);
+          result = await runEdgeVision(image, profileRef.current, { forceContingency: true });
         }
 
-        if (!cancelled) {
-          if (result) {
-            await sendAction(conn, '/vision', { astronautId: conn.astronautId, result });
-          } else {
-            await sendAction(conn, '/vision', { astronautId: conn.astronautId, image });
-          }
+        if (!cancelled && result) {
+          await sendAction(conn, '/vision', { astronautId: conn.astronautId, result });
           setLocalError('');
         }
       } catch (e: unknown) {
         if (!cancelled && !isCanceledError(e)) {
-          const retry = getRetrySeconds(e);
-          if (retry) {
-            cooldownUntilRef.current = Date.now() + retry * 1000;
-            setLocalError(`Límite gratuito de Google AI (5/min). Enfriando por ${retry}s…`);
-          } else {
-            setLocalError(e instanceof Error ? e.message : 'No se pudo observar el entorno.');
-          }
+          setLocalError(e instanceof Error ? e.message : 'No se pudo procesar el entorno.');
         }
       } finally {
         inFlightRef.current = false;
@@ -221,59 +204,52 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
     const conn = connectionRef.current;
     if (!conn?.astronautId) return;
     const now = Date.now();
-    if (now < cooldownUntilRef.current) {
-      const remaining = Math.ceil((cooldownUntilRef.current - now) / 1000);
-      setLocalError(`Límite de Google AI (5/min). Enfriando por ${remaining}s…`);
-      return;
-    }
     if (inFlightRef.current) return;
 
     inFlightRef.current = true;
     lastExecutionRef.current = now;
     setLocalError('');
     setIsProcessingAi(true);
-    setAiStatusText('Ejecutando Edge AI en smartphone…');
     try {
       const image = await captureRef.current();
       let result: VisualResult | null = null;
       const sess = activeSessionRef.current;
-      if (sess?.clientAi?.apiKey) {
-        try {
+      const inCooldown = now < cooldownUntilRef.current;
+
+      try {
+        if (inCooldown) {
+          const remaining = Math.ceil((cooldownUntilRef.current - now) / 1000);
+          setAiStatusText(`🛰️ Motor Dual Activo (Inferencia local · Reintento Gemini en ${remaining}s)…`);
           result = await runEdgeVision(image, profileRef.current, {
-            apiKey: sess.clientAi.apiKey,
-            model: sess.clientAi.model,
+            apiKey: sess?.clientAi?.apiKey,
+            model: sess?.clientAi?.model,
+            forceContingency: true,
           });
-          setAiStatusText(`Edge AI completado (${result.latencyMs ?? 0} ms) · Transmitiendo telemetría…`);
-        } catch (edgeErr: unknown) {
-          if (isCanceledError(edgeErr)) {
-            return;
+        } else {
+          setAiStatusText('Ejecutando Edge AI en smartphone…');
+          result = await runEdgeVision(image, profileRef.current, {
+            apiKey: sess?.clientAi?.apiKey,
+            model: sess?.clientAi?.model,
+          });
+          if (result.engine === 'dual_contingency') {
+            cooldownUntilRef.current = Date.now() + 60000;
+            setAiStatusText('🛰️ Motor Dual Activo (Inferencia local en dispositivo)…');
+          } else {
+            setAiStatusText(`✨ Edge AI Gemini (${result.latencyMs ?? 0} ms) · Transmitiendo…`);
+            cooldownUntilRef.current = 0;
           }
-          const retry = getRetrySeconds(edgeErr);
-          if (retry) {
-            cooldownUntilRef.current = Date.now() + retry * 1000;
-            setLocalError(`Límite gratuito de Google AI (5/min). Enfriando por ${retry}s…`);
-            setTimeout(() => {
-              setLocalError(prev => (prev.includes('Enfriando') ? '' : prev));
-            }, retry * 1000);
-            return;
-          }
-          console.warn('Fallo en Edge AI local, recurriendo al servidor:', edgeErr);
         }
+      } catch (edgeErr: unknown) {
+        if (isCanceledError(edgeErr)) return;
+        result = await runEdgeVision(image, profileRef.current, { forceContingency: true });
       }
+
       if (result) {
         await action('/vision', { astronautId: conn.astronautId, result });
-      } else {
-        await action('/vision', { astronautId: conn.astronautId, image });
       }
     } catch (e: unknown) {
       if (!isCanceledError(e)) {
-        const retry = getRetrySeconds(e);
-        if (retry) {
-          cooldownUntilRef.current = Date.now() + retry * 1000;
-          setLocalError(`Límite gratuito de Google AI (5/min). Enfriando por ${retry}s…`);
-        } else {
-          setLocalError(e instanceof Error ? e.message : 'No se pudo capturar el entorno.');
-        }
+        setLocalError(e instanceof Error ? e.message : 'No se pudo capturar el entorno.');
       }
     } finally {
       inFlightRef.current = false;
@@ -354,8 +330,14 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
           {crew && (
             <>
               <div className="edge-ai-indicator">
-                <span className="edge-tag">🛰️ Edge AI On-Device</span>
-                <small>La IA procesa en este teléfono y solo transmite telemetría ligera a la Tierra</small>
+                <span className="edge-tag">
+                  {latest?.engine === 'dual_contingency' ? '🛰️ Motor Dual On-Device' : '✨ Edge AI Gemini'}
+                </span>
+                <small>
+                  {latest?.engine === 'dual_contingency'
+                    ? 'Inferencia cognitiva local continua · Respaldo en tiempo real'
+                    : 'La IA procesa en este teléfono y solo transmite telemetría ligera a la Tierra'}
+                </small>
               </div>
 
               {isProcessingAi && (
@@ -378,7 +360,13 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
                 )}
                 {latest && (
                   <small>
-                    {new Date(latest.timestamp).toLocaleTimeString('es-MX')} · {latest.processedOn === 'edge_device' ? `🛰️ Procesado en móvil (${latest.latencyMs ? `${latest.latencyMs}ms` : 'Edge AI'})` : (latest.source === 'simulador' ? 'Simulación' : 'Observación visual')}
+                    {new Date(latest.timestamp).toLocaleTimeString('es-MX')} · {
+                      latest.engine === 'dual_contingency'
+                        ? '🛰️ Motor Dual On-Device (Respaldo en tiempo real)'
+                        : latest.processedOn === 'edge_device'
+                          ? `✨ Gemini 3.8 Flash (${latest.latencyMs ? `${latest.latencyMs}ms` : 'Edge AI'})`
+                          : (latest.source === 'simulador' ? 'Simulación' : 'Observación visual')
+                    }
                   </small>
                 )}
               </section>

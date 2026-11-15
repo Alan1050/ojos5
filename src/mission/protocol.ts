@@ -43,6 +43,7 @@ export type VisualResult = {
   observations: { trigger: VisualTrigger; confidence: number; evidence: string }[];
   processedOn?: 'edge_device' | 'server';
   latencyMs?: number;
+  engine?: 'gemini' | 'dual_contingency';
 };
 export type VisualAnalysis = VisualResult & {
   id: string; astronautId: AstronautId; timestamp: string; source: 'vision' | 'simulador';
