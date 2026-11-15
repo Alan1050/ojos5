@@ -174,6 +174,9 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
             if (retry) {
               cooldownUntilRef.current = Date.now() + retry * 1000;
               setLocalError(`Límite gratuito de Google AI (5/min). Enfriando por ${retry}s…`);
+              setTimeout(() => {
+                setLocalError(prev => (prev.includes('Enfriando') ? '' : prev));
+              }, retry * 1000);
               return;
             }
             console.warn('Fallo en Edge AI local, recurriendo al servidor:', edgeErr);
@@ -248,6 +251,9 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
           if (retry) {
             cooldownUntilRef.current = Date.now() + retry * 1000;
             setLocalError(`Límite gratuito de Google AI (5/min). Enfriando por ${retry}s…`);
+            setTimeout(() => {
+              setLocalError(prev => (prev.includes('Enfriando') ? '' : prev));
+            }, retry * 1000);
             return;
           }
           console.warn('Fallo en Edge AI local, recurriendo al servidor:', edgeErr);
