@@ -44,6 +44,7 @@ export type VisualResult = {
   processedOn?: 'edge_device' | 'server';
   latencyMs?: number;
   engine?: 'gemini' | 'dual_contingency';
+  thumbnail?: string;
 };
 export type VisualAnalysis = VisualResult & {
   id: string; astronautId: AstronautId; timestamp: string; source: 'vision' | 'simulador';

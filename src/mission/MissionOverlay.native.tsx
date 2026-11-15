@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, AppState, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, AppState, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchActiveSession, sendAction } from './client';
 import { isCanceledError, runEdgeVision } from './client-ai';
@@ -32,10 +32,10 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
   const [automatic, setAutomatic] = useState(true);
   const [isProcessingAi, setIsProcessingAi] = useState(false);
   const [aiStatusText, setAiStatusText] = useState('');
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
   const lastExecutionRef = useRef<number>(0);
   const inFlightRef = useRef<boolean>(false);
-  const cooldownUntilRef = useRef<number>(0);
   const activeSessionRef = useRef(activeSession);
   const connectionRef = useRef(connection);
   const captureRef = useRef(capture);
@@ -133,44 +133,27 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
       inFlightRef.current = true;
       lastExecutionRef.current = now;
       setIsProcessingAi(true);
+      setAiStatusText('Analizando entorno…');
       try {
         const image = await captureRef.current();
         if (cancelled) return;
+        setCapturedImage(image);
 
         let result: VisualResult | null = null;
         const sess = activeSessionRef.current;
-        const inCooldown = now < cooldownUntilRef.current;
 
         try {
-          if (inCooldown) {
-            const remaining = Math.ceil((cooldownUntilRef.current - now) / 1000);
-            setAiStatusText(`🛰️ Motor Dual Activo (Inferencia local · Reintento Gemini en ${remaining}s)…`);
-            result = await runEdgeVision(image, profileRef.current, {
-              apiKey: sess?.clientAi?.apiKey,
-              model: sess?.clientAi?.model,
-              forceContingency: true,
-            });
-          } else {
-            setAiStatusText('Ejecutando Edge AI en smartphone…');
-            result = await runEdgeVision(image, profileRef.current, {
-              apiKey: sess?.clientAi?.apiKey,
-              model: sess?.clientAi?.model,
-            });
-            if (result.engine === 'dual_contingency') {
-              cooldownUntilRef.current = Date.now() + 60000;
-              setAiStatusText('🛰️ Motor Dual Activo (Inferencia local en dispositivo)…');
-            } else {
-              setAiStatusText(`✨ Edge AI Gemini: ${result.latencyMs ?? 0} ms · Transmitiendo…`);
-              cooldownUntilRef.current = 0;
-            }
-          }
+          result = await runEdgeVision(image, profileRef.current, {
+            apiKey: sess?.clientAi?.apiKey,
+            model: sess?.clientAi?.model,
+          });
         } catch (edgeErr: unknown) {
           if (isCanceledError(edgeErr)) return;
-          console.warn('Fallo inesperado, usando motor dual:', edgeErr);
           result = await runEdgeVision(image, profileRef.current, { forceContingency: true });
         }
 
         if (!cancelled && result) {
+          result.thumbnail = image;
           await sendAction(conn, '/vision', { astronautId: conn.astronautId, result });
           setLocalError('');
         }
@@ -181,6 +164,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
       } finally {
         inFlightRef.current = false;
         setIsProcessingAi(false);
+        setAiStatusText('');
       }
     };
 
@@ -221,41 +205,25 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
     lastExecutionRef.current = now;
     setLocalError('');
     setIsProcessingAi(true);
+    setAiStatusText('Analizando entorno…');
     try {
       const image = await captureRef.current();
+      setCapturedImage(image);
       let result: VisualResult | null = null;
       const sess = activeSessionRef.current;
-      const inCooldown = now < cooldownUntilRef.current;
 
       try {
-        if (inCooldown) {
-          const remaining = Math.ceil((cooldownUntilRef.current - now) / 1000);
-          setAiStatusText(`🛰️ Motor Dual Activo (Inferencia local · Reintento Gemini en ${remaining}s)…`);
-          result = await runEdgeVision(image, profileRef.current, {
-            apiKey: sess?.clientAi?.apiKey,
-            model: sess?.clientAi?.model,
-            forceContingency: true,
-          });
-        } else {
-          setAiStatusText('Ejecutando Edge AI en smartphone…');
-          result = await runEdgeVision(image, profileRef.current, {
-            apiKey: sess?.clientAi?.apiKey,
-            model: sess?.clientAi?.model,
-          });
-          if (result.engine === 'dual_contingency') {
-            cooldownUntilRef.current = Date.now() + 60000;
-            setAiStatusText('🛰️ Motor Dual Activo (Inferencia local en dispositivo)…');
-          } else {
-            setAiStatusText(`✨ Edge AI Gemini: ${result.latencyMs ?? 0} ms · Transmitiendo…`);
-            cooldownUntilRef.current = 0;
-          }
-        }
+        result = await runEdgeVision(image, profileRef.current, {
+          apiKey: sess?.clientAi?.apiKey,
+          model: sess?.clientAi?.model,
+        });
       } catch (edgeErr: unknown) {
         if (isCanceledError(edgeErr)) return;
         result = await runEdgeVision(image, profileRef.current, { forceContingency: true });
       }
 
       if (result) {
+        result.thumbnail = image;
         await action('/vision', { astronautId: conn.astronautId, result });
       }
     } catch (e: unknown) {
@@ -265,6 +233,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
     } finally {
       inFlightRef.current = false;
       setIsProcessingAi(false);
+      setAiStatusText('');
     }
   }
 
@@ -335,46 +304,27 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
 
             {crew && (
               <>
-                <View style={styles.edgeBadge}>
-                  <Text style={styles.edgeBadgeText}>
-                    {latest?.engine === 'dual_contingency' ? '🛰️ Motor Dual On-Device Activo' : '✨ Edge AI Gemini Activo'}
-                  </Text>
-                  <Text style={styles.edgeBadgeSub}>
-                    {latest?.engine === 'dual_contingency'
-                      ? 'Inferencia cognitiva local continua · Respaldo en tiempo real'
-                      : 'Inferencia en este dispositivo · Transmite solo telemetría'}
-                  </Text>
-                </View>
-
-                {isProcessingAi && (
-                  <View style={styles.processingBanner}>
-                    <Text style={styles.processingText}>⚙️ {aiStatusText || 'Analizando entorno localmente…'}</Text>
-                  </View>
-                )}
-
-                <Text style={styles.origin}>
-                  {simulated ? `Demo visual · Minuto ${data.clock.minute} · Escenas simuladas` : 'Cámara móvil · Telemetría espacial en vivo'}
-                </Text>
 
                 <View style={styles.scene}>
-                  <Text style={styles.title}>Lo que observa la IA</Text>
+                  {(capturedImage || latest?.thumbnail) && (
+                    <View style={styles.thumbnailContainer}>
+                      <Image
+                        source={{ uri: capturedImage || latest?.thumbnail }}
+                        style={styles.thumbnail}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  )}
+                  <Text style={styles.title}>Lo que observa la cámara</Text>
+                  {isProcessingAi && (
+                    <Text style={styles.processingText}>⚙️ {aiStatusText || 'Analizando entorno…'}</Text>
+                  )}
                   <Text style={styles.text}>{latest?.summary || 'Esperando el primer análisis del entorno.'}</Text>
                   {latest?.impact && (
                     <Text style={styles.impactText}>Evaluación: {latest.impact}</Text>
                   )}
                   {latest?.suggestion && (
                     <Text style={styles.suggestionText}>Sugerencia: {latest.suggestion}</Text>
-                  )}
-                  {latest && (
-                    <Text style={styles.origin}>
-                      {new Date(latest.timestamp).toLocaleTimeString('es-MX')} · {
-                        latest.engine === 'dual_contingency'
-                          ? '🛰️ Motor Dual On-Device (Respaldo en tiempo real)'
-                          : latest.processedOn === 'edge_device'
-                            ? `✨ Gemini 3.8 Flash (${latest.latencyMs ? `${latest.latencyMs}ms` : 'Edge AI'})`
-                            : 'Servidor'
-                      }
-                    </Text>
                   )}
                 </View>
 
@@ -387,7 +337,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
                     <>
                       <Text style={styles.text}>
                         {automatic
-                          ? 'Observación continua automática activa (1 fotograma cada 13s · 5 análisis/min).'
+                          ? 'Observación continua automática activa.'
                           : 'Observación automática en pausa. Pulsa reanudar para continuar.'}
                       </Text>
                       <View style={styles.row}>
@@ -485,11 +435,22 @@ const styles = StyleSheet.create({
   cardTextContainer: { flex: 1 },
   cardTitle: { color: '#f1f6ff', fontWeight: '600', fontSize: 13 },
   cardSubtitle: { color: '#9bb7da', fontSize: 11 },
-  edgeBadge: { backgroundColor: '#0c1a2c', borderColor: '#1f3b5e', borderWidth: 1, borderRadius: 8, padding: 8, gap: 2 },
-  edgeBadgeText: { color: '#59ddbf', fontSize: 11, fontWeight: '700' },
-  edgeBadgeSub: { color: '#9bb7da', fontSize: 10 },
+  thumbnailContainer: {
+    width: '100%',
+    height: 160,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#050c18',
+    borderWidth: 1,
+    borderColor: '#324c6e',
+    marginBottom: 4,
+  },
+  thumbnail: {
+    width: '100%',
+    height: 160,
+  },
   processingBanner: { backgroundColor: '#1a3a5f', borderRadius: 6, padding: 8 },
-  processingText: { color: '#bde0fe', fontSize: 12 },
+  processingText: { color: '#59ddbf', fontSize: 12 },
   impactText: { color: '#ffd166', fontSize: 12, lineHeight: 16 },
   suggestionText: { color: '#06d6a0', fontSize: 12, lineHeight: 16 },
 });

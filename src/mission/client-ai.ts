@@ -149,15 +149,17 @@ export async function runEdgeVision(
   }
 
   const rawModel = options.model?.trim();
-  const model = (!rawModel || rawModel.includes('2.0') || rawModel.includes('2.5') || rawModel.includes('1.5'))
-    ? 'gemini-3.8-flash'
+  const preferredModel = (!rawModel || rawModel.includes('2.0') || rawModel.includes('2.5') || rawModel.includes('1.5') || rawModel.includes('3.8'))
+    ? 'gemini-3.5-flash'
     : rawModel;
+
+  const modelsToTry = [preferredModel, 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3-flash'].filter((m, i, arr) => arr.indexOf(m) === i);
 
   const profileInfo = profile
     ? `Tripulante observado: Astronauta ${profile.astronaut_id} (Especialidad: ${profile.specialty.replaceAll('_', ' ')}). Sensibilidades conocidas de misión: ${profile.stress_triggers.replaceAll('|', ', ')}. Estrategias de calma registradas: ${profile.calmers.replaceAll('|', ', ')}.`
     : '';
 
-  const instructions = `Eres el asistente de monitoreo de entorno para la misión NeuroOrbit ejecutándote directamente en el dispositivo móvil del astronauta (Edge AI). Describe únicamente evidencia visible de la cámara. No infieras emociones ni signos vitales. ${profileInfo} Identifica si hay: espacios_reducidos, desorden_visual o alerta_visual. Si no hay evidencia, devuelve observations vacío. Evalúa brevemente si el entorno genera fricción según el rol del tripulante y sugiere una acción breve acorde a su perfil. Todo en español.`;
+  const instructions = `Eres el asistente de monitoreo de entorno para la misión NeuroOrbit. Describe con precisión y naturalidad lo que se observa en la imagen capturada por la cámara (objetos, mobiliario, personas, instrumental, iluminación). No inventes cosas que no estén presentes en la imagen. No infieras emociones ni signos vitales. ${profileInfo} Identifica si hay: espacios_reducidos, desorden_visual o alerta_visual. Si no hay evidencia clara, devuelve observations vacío. Evalúa brevemente si el entorno genera fricción según el rol del tripulante y sugiere una acción breve acorde a su perfil. Todo en español.`;
 
   const pureBase64 = image.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
   const start = performance.now();
@@ -175,87 +177,101 @@ export async function runEdgeVision(
   }
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: instructions }] },
-        contents: [{
-          parts: [
-            { text: 'Describe el entorno visible y las posibles situaciones observables que convendría revisar.' },
-            { inlineData: { mimeType: 'image/jpeg', data: pureBase64 } }
-          ]
-        }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: {
-              summary: { type: 'STRING' },
-              impact: { type: 'STRING' },
-              suggestion: { type: 'STRING' },
-              observations: {
-                type: 'ARRAY',
-                items: {
-                  type: 'OBJECT',
-                  properties: {
-                    trigger: { type: 'STRING', enum: visualTriggers },
-                    confidence: { type: 'NUMBER' },
-                    evidence: { type: 'STRING' }
-                  },
-                  required: ['trigger', 'confidence', 'evidence']
-                }
+    for (const model of modelsToTry) {
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: instructions }] },
+            contents: [{
+              parts: [
+                { text: 'Describe con fidelidad el entorno que capta la cámara y las posibles situaciones observables.' },
+                { inlineData: { mimeType: 'image/jpeg', data: pureBase64 } }
+              ]
+            }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: 'OBJECT',
+                properties: {
+                  summary: { type: 'STRING' },
+                  impact: { type: 'STRING' },
+                  suggestion: { type: 'STRING' },
+                  observations: {
+                    type: 'ARRAY',
+                    items: {
+                      type: 'OBJECT',
+                      properties: {
+                        trigger: { type: 'STRING', enum: visualTriggers },
+                        confidence: { type: 'NUMBER' },
+                        evidence: { type: 'STRING' }
+                      },
+                      required: ['trigger', 'confidence', 'evidence']
+                    }
+                  }
+                },
+                required: ['summary', 'observations']
               }
-            },
-            required: ['summary', 'observations']
+            }
+          })
+        });
+
+        if (!response.ok) {
+          const errJson = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+          const msg = errJson?.error?.message || `Google AI respondió código ${response.status}`;
+          // Si el modelo actual tiene cuota superada (429), reintentar con el siguiente modelo de la lista
+          if (response.status === 429 || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate')) {
+            continue;
           }
+          continue;
         }
-      })
-    });
 
-    if (!response.ok) {
-      const errJson = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-      const msg = errJson?.error?.message || `Google AI respondió código ${response.status}`;
-      if (response.status === 429 || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate')) {
-        return generateLocalContingencyVision(image, profile);
+        const data = await response.json() as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+        const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!candidateText) {
+          continue;
+        }
+
+        const cleanText = candidateText.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
+        const parsed = JSON.parse(cleanText) as VisualResult;
+        const latencyMs = Math.round(performance.now() - start);
+
+        return {
+          summary: String(parsed.summary || '').slice(0, 500),
+          ...(parsed.impact ? { impact: String(parsed.impact).slice(0, 500) } : {}),
+          ...(parsed.suggestion ? { suggestion: String(parsed.suggestion).slice(0, 500) } : {}),
+          observations: Array.isArray(parsed.observations)
+            ? parsed.observations.slice(0, 3).map(o => ({
+                trigger: o.trigger as VisualTrigger,
+                confidence: Number(o.confidence) || 0.8,
+                evidence: String(o.evidence || '').slice(0, 400),
+              }))
+            : [],
+          processedOn: 'edge_device',
+          engine: 'gemini',
+          latencyMs,
+          thumbnail: image,
+        };
+      } catch (err: unknown) {
+        if (isCanceledError(err)) throw err;
       }
-      throw new Error(`Edge AI móvil: ${msg}`);
     }
 
-    const data = await response.json() as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!candidateText) {
-      return generateLocalContingencyVision(image, profile);
-    }
-
-    const cleanText = candidateText.replace(/^```json\s*/, '').replace(/```\s*$/, '').trim();
-    const parsed = JSON.parse(cleanText) as VisualResult;
-    const latencyMs = Math.round(performance.now() - start);
-
-    return {
-      summary: String(parsed.summary || '').slice(0, 500),
-      ...(parsed.impact ? { impact: String(parsed.impact).slice(0, 500) } : {}),
-      ...(parsed.suggestion ? { suggestion: String(parsed.suggestion).slice(0, 500) } : {}),
-      observations: Array.isArray(parsed.observations)
-        ? parsed.observations.slice(0, 3).map(o => ({
-            trigger: o.trigger as VisualTrigger,
-            confidence: Number(o.confidence) || 0.8,
-            evidence: String(o.evidence || '').slice(0, 400),
-          }))
-        : [],
-      processedOn: 'edge_device',
-      engine: 'gemini',
-      latencyMs,
-    };
+    // Si fallaron todos los modelos de la lista, recurrir a contingencia
+    const contingency = generateLocalContingencyVision(image, profile);
+    contingency.thumbnail = image;
+    return contingency;
   } catch (err: unknown) {
     if (isCanceledError(err)) {
       throw err;
     }
-    // Fallback dual continuo si Google AI no está disponible
-    return generateLocalContingencyVision(image, profile);
+    const contingency = generateLocalContingencyVision(image, profile);
+    contingency.thumbnail = image;
+    return contingency;
   } finally {
     clearTimeout(timer);
     if (options.signal) {

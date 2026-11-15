@@ -23,10 +23,10 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
   const [automatic, setAutomatic] = useState(true);
   const [isProcessingAi, setIsProcessingAi] = useState(false);
   const [aiStatusText, setAiStatusText] = useState('');
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
   const lastExecutionRef = useRef<number>(0);
   const inFlightRef = useRef<boolean>(false);
-  const cooldownUntilRef = useRef<number>(0);
   const activeSessionRef = useRef(activeSession);
   const connectionRef = useRef(connection);
   const captureRef = useRef(capture);
@@ -140,44 +140,27 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
       inFlightRef.current = true;
       lastExecutionRef.current = now;
       setIsProcessingAi(true);
+      setAiStatusText('Analizando entorno…');
       try {
         const image = await captureRef.current();
         if (cancelled) return;
+        setCapturedImage(image);
 
         let result: VisualResult | null = null;
         const sess = activeSessionRef.current;
-        const inCooldown = now < cooldownUntilRef.current;
 
         try {
-          if (inCooldown) {
-            const remaining = Math.ceil((cooldownUntilRef.current - now) / 1000);
-            setAiStatusText(`🛰️ Motor Dual Activo (Inferencia local · Reintento Gemini en ${remaining}s)…`);
-            result = await runEdgeVision(image, profileRef.current, {
-              apiKey: sess?.clientAi?.apiKey,
-              model: sess?.clientAi?.model,
-              forceContingency: true,
-            });
-          } else {
-            setAiStatusText('Ejecutando Edge AI en smartphone…');
-            result = await runEdgeVision(image, profileRef.current, {
-              apiKey: sess?.clientAi?.apiKey,
-              model: sess?.clientAi?.model,
-            });
-            if (result.engine === 'dual_contingency') {
-              cooldownUntilRef.current = Date.now() + 60000;
-              setAiStatusText('🛰️ Motor Dual Activo (Inferencia local en dispositivo)…');
-            } else {
-              setAiStatusText(`✨ Edge AI Gemini (${result.latencyMs ?? 0} ms) · Transmitiendo…`);
-              cooldownUntilRef.current = 0;
-            }
-          }
+          result = await runEdgeVision(image, profileRef.current, {
+            apiKey: sess?.clientAi?.apiKey,
+            model: sess?.clientAi?.model,
+          });
         } catch (edgeErr: unknown) {
           if (isCanceledError(edgeErr)) return;
-          console.warn('Fallo inesperado, usando motor dual:', edgeErr);
           result = await runEdgeVision(image, profileRef.current, { forceContingency: true });
         }
 
         if (!cancelled && result) {
+          result.thumbnail = image;
           await sendAction(conn, '/vision', { astronautId: conn.astronautId, result });
           setLocalError('');
         }
@@ -188,6 +171,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
       } finally {
         inFlightRef.current = false;
         setIsProcessingAi(false);
+        setAiStatusText('');
       }
     };
 
@@ -210,41 +194,25 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
     lastExecutionRef.current = now;
     setLocalError('');
     setIsProcessingAi(true);
+    setAiStatusText('Analizando entorno…');
     try {
       const image = await captureRef.current();
+      setCapturedImage(image);
       let result: VisualResult | null = null;
       const sess = activeSessionRef.current;
-      const inCooldown = now < cooldownUntilRef.current;
 
       try {
-        if (inCooldown) {
-          const remaining = Math.ceil((cooldownUntilRef.current - now) / 1000);
-          setAiStatusText(`🛰️ Motor Dual Activo (Inferencia local · Reintento Gemini en ${remaining}s)…`);
-          result = await runEdgeVision(image, profileRef.current, {
-            apiKey: sess?.clientAi?.apiKey,
-            model: sess?.clientAi?.model,
-            forceContingency: true,
-          });
-        } else {
-          setAiStatusText('Ejecutando Edge AI en smartphone…');
-          result = await runEdgeVision(image, profileRef.current, {
-            apiKey: sess?.clientAi?.apiKey,
-            model: sess?.clientAi?.model,
-          });
-          if (result.engine === 'dual_contingency') {
-            cooldownUntilRef.current = Date.now() + 60000;
-            setAiStatusText('🛰️ Motor Dual Activo (Inferencia local en dispositivo)…');
-          } else {
-            setAiStatusText(`✨ Edge AI Gemini (${result.latencyMs ?? 0} ms) · Transmitiendo…`);
-            cooldownUntilRef.current = 0;
-          }
-        }
+        result = await runEdgeVision(image, profileRef.current, {
+          apiKey: sess?.clientAi?.apiKey,
+          model: sess?.clientAi?.model,
+        });
       } catch (edgeErr: unknown) {
         if (isCanceledError(edgeErr)) return;
         result = await runEdgeVision(image, profileRef.current, { forceContingency: true });
       }
 
       if (result) {
+        result.thumbnail = image;
         await action('/vision', { astronautId: conn.astronautId, result });
       }
     } catch (e: unknown) {
@@ -254,6 +222,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
     } finally {
       inFlightRef.current = false;
       setIsProcessingAi(false);
+      setAiStatusText('');
     }
   }
 
@@ -329,45 +298,25 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
 
           {crew && (
             <>
-              <div className="edge-ai-indicator">
-                <span className="edge-tag">
-                  {latest?.engine === 'dual_contingency' ? '🛰️ Motor Dual On-Device' : '✨ Edge AI Gemini'}
-                </span>
-                <small>
-                  {latest?.engine === 'dual_contingency'
-                    ? 'Inferencia cognitiva local continua · Respaldo en tiempo real'
-                    : 'La IA procesa en este teléfono y solo transmite telemetría ligera a la Tierra'}
-                </small>
-              </div>
-
               {isProcessingAi && (
                 <div className="edge-processing-banner" role="status">
-                  ⚙️ {aiStatusText || 'Analizando entorno en el dispositivo móvil…'}
+                  ⚙️ {aiStatusText || 'Analizando entorno…'}
                 </div>
               )}
 
-              <p className="mission-hud__origin">
-                {simulated ? 'Escenas simuladas. La imagen de tu cámara no se analiza en esta demo.' : 'Cámara de smartphone · Observación del entorno'}
-              </p>
               <section className="mission-hud__scene" aria-live="polite">
-                <h2>Lo que observa la IA</h2>
+                {(capturedImage || latest?.thumbnail) && (
+                  <div className="visual-thumbnail-wrap">
+                    <img src={capturedImage || latest?.thumbnail} alt="Captura de la cámara" className="visual-thumbnail" />
+                  </div>
+                )}
+                <h2>Lo que observa la cámara</h2>
                 <p>{latest?.summary || 'Esperando el primer análisis del entorno.'}</p>
                 {latest?.impact && (
-                  <p className="hud-impact"><strong>Impacto:</strong> {latest.impact}</p>
+                  <p className="hud-impact"><strong>Evaluación:</strong> {latest.impact}</p>
                 )}
                 {latest?.suggestion && (
                   <p className="hud-suggestion"><strong>Sugerencia:</strong> {latest.suggestion}</p>
-                )}
-                {latest && (
-                  <small>
-                    {new Date(latest.timestamp).toLocaleTimeString('es-MX')} · {
-                      latest.engine === 'dual_contingency'
-                        ? '🛰️ Motor Dual On-Device (Respaldo en tiempo real)'
-                        : latest.processedOn === 'edge_device'
-                          ? `✨ Gemini 3.8 Flash (${latest.latencyMs ? `${latest.latencyMs}ms` : 'Edge AI'})`
-                          : (latest.source === 'simulador' ? 'Simulación' : 'Observación visual')
-                    }
-                  </small>
                 )}
               </section>
 
@@ -381,7 +330,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
                     <h2>Observar mi entorno</h2>
                     <p>
                       {automatic
-                        ? 'Observación continua automática activa (1 fotograma cada 13s · 5 análisis/min).'
+                        ? 'Observación continua automática activa.'
                         : 'Observación automática en pausa. Pulsa reanudar para continuar.'}
                     </p>
                     <div className="mission-hud__actions">
