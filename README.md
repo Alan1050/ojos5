@@ -1,56 +1,43 @@
-# Welcome to your Expo app 👋
+# Ojos · MVP con cámara
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Ojos muestra el entorno del astronauta y comparte observaciones y avisos con **https://centrocontrolneuro.netlify.app**. Utiliza la cámara integrada del teléfono o computadora, sin dispositivos adicionales. Conserva Expo SDK 58, React Native y Expo Router.
 
-## Get started
+## Conectar
 
-1. Install dependencies
+1. En CentroControl inicia una sesión con cámara.
+2. En la tarjeta de un astronauta abre «Conectar ojos5» y utiliza ese enlace en el dispositivo.
+3. También puedes pegar el enlace en la aplicación Expo. La conexión queda asociada a ese astronauta.
+4. «Iniciar observación» envía un fotograma cada veinte segundos mientras la cámara está activa. «Analizar ahora» envía uno a petición.
 
-   ```bash
-   npm install
-   ```
+La IA describe la escena y posibles detonadores visuales. El astronauta recibe una sugerencia y puede aceptar, descartar o indicar si ayudó. El estado emocional puede comunicarse voluntariamente; se identifica como respuesta del astronauta, no como una lectura de la cámara.
 
-2. Start the app
+## Ejecutar
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```sh
+npm ci
+npm run web
+# o npm start para un dispositivo con Expo SDK 58 compatible
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+Requiere Node 22.18 o posterior. Las cámaras web necesitan localhost o HTTPS en el propio dispositivo. Para conectarse desde otro teléfono utiliza el sitio publicado. Las pruebas nativas requieren un dispositivo físico compatible.
 
-### Other setup steps
+## Captura y análisis
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+- Se solicita cámara, sin micrófono ni grabación de video.
+- La cámara se libera al salir o pasar a segundo plano. La captura periódica no envía imágenes cuando la app está en segundo plano o la pestaña está oculta.
+- Solo se envía el fotograma al iniciar explícitamente el análisis. El servidor conserva la descripción, los eventos y las respuestas, no la imagen.
+- Expo Camera genera en nativo un archivo temporal de captura en la caché del sistema.
+- Web permite escuchar la sugerencia mediante la voz del navegador. En nativo los mensajes son accesibles al lector de pantalla.
+- La demo visual muestra escenas simuladas y lo indica expresamente. No analiza imágenes reales.
+- El proveedor visual se configura en el servidor de CentroControl. La aplicación móvil no contiene sus credenciales.
 
-## Learn more
+## Verificar
 
-To learn more about developing your project with Expo, look at the following resources:
+```sh
+npm run typecheck
+npm run lint
+npm test
+npm run export:web
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+La exportación genera `dist/`. El contrato, el cliente y la asistencia web se sincronizan con `CentroControl/scripts/sync-ojos.mjs`. Cada repositorio conserva los archivos necesarios para compilar de forma independiente.

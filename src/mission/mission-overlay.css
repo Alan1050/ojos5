@@ -1,0 +1,59 @@
+.mission-hud { position: fixed; z-index: 20; top: max(16px, env(safe-area-inset-top)); right: 16px; width: min(390px, calc(100vw - 32px)); color: #f1f6ff; font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; border: 1px solid #ffffff35; border-radius: 16px; background: #0a1425ed; box-shadow: 0 12px 40px #0005; backdrop-filter: blur(16px); overflow: hidden; }
+.mission-hud--alert { border-color: #f8ad53; }
+.mission-hud button { cursor: pointer; border: 1px solid #526580; border-radius: 9px; background: #1d3452; color: #f1f6ff; padding: 9px 12px; min-height: 42px; font: inherit; }
+.mission-hud button:hover { background: #294969; }
+.mission-hud button:disabled { opacity: .5; cursor: wait; }
+.mission-hud button:focus-visible, .mission-hud input:focus-visible { outline: 2px solid #80d8fa; outline-offset: 3px; }
+.mission-hud__bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; }
+.mission-hud__bar > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mission-hud__bar strong { font-size: 13px; }
+.mission-hud__bar > div > span:last-child { color: #bacbe2; font-size: 11px; }
+.mission-hud__bar button { min-height: 36px; font-size: 12px; padding: 5px 10px; }
+.mission-hud__dot { width: 7px; height: 7px; background: #8290a3; border-radius: 50%; }
+.mission-hud__dot--live { background: #59ddbf; }
+.mission-hud__body { padding: 4px 18px 18px; max-height: calc(100dvh - 140px); overflow-y: auto; overscroll-behavior: contain; }
+.mission-hud__scene { padding: 10px 12px; background: #ffffff08; border: 1px solid #ffffff20; border-radius: 9px; margin-block: 12px; }
+.mission-hud__scene small { color: #b1c2da; font-size: 11px; }
+.mission-hud h2 { font-size: 17px; line-height: 1.4; margin: 8px 0; }
+.mission-hud p { margin: 8px 0 14px; color: #ccdaed; }
+.mission-hud label { display: grid; gap: 8px; margin: 12px 0; }
+.mission-hud input[type='url'] { background: #091320; border: 1px solid #526580; color: #f1f6ff; border-radius: 9px; padding: 12px; min-width: 0; width: 100%; font: inherit; }
+.mission-hud__state { display: grid; grid-template-columns: 1fr auto; gap: 14px; padding: 12px 0; }
+.mission-hud__state span { display: block; font-size: 11px; color: #bacbe2; }
+.mission-hud__state strong { font-size: 20px; font-weight: 550; }
+.mission-hud .mission-hud__origin { font-size: 11px; color: #b1c2da; }
+.mission-hud .mission-hud__error { padding: 10px; border-radius: 8px; background: #6e321e; color: #fff0df; }
+.mission-hud__suggestion { padding: 12px; border: 1px solid #b98343; background: #392b20; border-radius: 10px; }
+.mission-hud__suggestion p { font-size: 13px; }
+.mission-hud__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.mission-hud .mission-hud__response { color: #93e4ca; font-size: 12px; margin-bottom: 0; }
+.mission-hud .mission-hud__quiet { padding: 10px 0; font-size: 13px; }
+.mission-hud details { padding-top: 14px; margin-top: 14px; border-top: 1px solid #ffffff20; }
+.mission-hud summary { cursor: pointer; font-size: 13px; }
+.mission-hud details p { font-size: 12px; }
+.mission-hud .mission-hud__check { display: flex; align-items: center; font-size: 12px; }
+.mission-hud__check input { width: 18px; height: 18px; }
+.mission-hud .mission-hud__disconnect { margin-top: 18px; background: transparent; font-size: 11px; }
+@media (max-width: 480px) { .mission-hud { top: max(10px, env(safe-area-inset-top)); right: 10px; width: calc(100vw - 20px); } .mission-hud__body { max-height: 65dvh; } }
+
+/* Selector rápido de astronauta y URL fija */
+.hud-bar-crew { display: flex; align-items: center; gap: 8px; }
+.hud-crew-switch { background: #182e4b; color: #f1f6ff; border: 1px solid #4a6385; border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 550; cursor: pointer; }
+.astronaut-selector-box { padding: 12px 0 6px; }
+.astronaut-selector-box h2 { font-size: 16px; margin: 0 0 6px; color: #f1f6ff; }
+.astronaut-selector-box p { font-size: 12px; color: #bacbe2; margin: 0 0 14px; line-height: 1.5; }
+.astronaut-selector-grid { display: flex; flex-direction: column; gap: 10px; }
+.astronaut-select-card { display: flex !important; align-items: center !important; gap: 12px !important; text-align: left !important; background: #13243a !important; border: 1px solid #324c6e !important; border-radius: 10px !important; padding: 12px 14px !important; cursor: pointer; transition: background .15s, border-color .15s; }
+.astronaut-select-card:hover { background: #1b3454 !important; border-color: #59ddbf !important; }
+.select-avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #59ddbf; color: #0a1425; font-weight: 700; font-size: 15px; flex-shrink: 0; }
+.select-info { display: flex; flex-direction: column; }
+.select-info strong { font-size: 13px; color: #f1f6ff; }
+.select-info small { font-size: 11px; color: #9ab4d6; }
+
+/* Edge AI Indicator */
+.edge-ai-indicator { display: flex; flex-direction: column; gap: 3px; background: #0c1a2c; border: 1px solid #1f3b5e; border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; }
+.edge-tag { font-size: 11px; font-weight: 700; color: #59ddbf; letter-spacing: 0.5px; }
+.edge-ai-indicator small { font-size: 11px; color: #9bb7da; }
+.edge-processing-banner { background: #1a3a5f; color: #bde0fe; border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.hud-impact { font-size: 12px; color: #ffd166; margin: 6px 0; line-height: 1.4; }
+.hud-suggestion { font-size: 12px; color: #06d6a0; margin: 6px 0; line-height: 1.4; }
