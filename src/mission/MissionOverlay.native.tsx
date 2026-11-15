@@ -37,7 +37,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
   const [activeSession, setActiveSession] = useState<SessionCreated | null>(null);
   const [localError, setLocalError] = useState('');
   const [expanded, setExpanded] = useState(true);
-  const [automatic, setAutomatic] = useState(false);
+  const [automatic, setAutomatic] = useState(true);
   const [isProcessingAi, setIsProcessingAi] = useState(false);
   const [aiStatusText, setAiStatusText] = useState('');
 
@@ -74,6 +74,16 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
         const session = await fetchActiveSession(DEFAULT_API_URL);
         if (!mounted) return;
         setActiveSession(session);
+        // Auto-conectar automáticamente con Astronauta A para inicio manos libres
+        if (!connectionRef.current && session.crewKeys['A']) {
+          setConnection({
+            apiUrl: DEFAULT_API_URL,
+            sessionId: session.sessionId,
+            key: session.crewKeys['A'],
+            astronautId: 'A',
+          });
+          setAutomatic(true);
+        }
       } catch (e) {
         if (mounted) console.warn('No se pudo conectar a la sesión activa fija:', e);
       }
@@ -126,7 +136,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
         setLocalError(`Límite de Google AI (5/min). Enfriando por ${remaining}s…`);
         return;
       }
-      if (inFlightRef.current || now - lastExecutionRef.current < 22000) {
+      if (inFlightRef.current || now - lastExecutionRef.current < 13000) {
         return;
       }
       if (AppState.currentState !== 'active') return;
@@ -192,7 +202,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
     };
 
     void sample();
-    const timer = setInterval(() => void sample(), 22000);
+    const timer = setInterval(() => void sample(), 13000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [automatic, cameraStatus, cameraSession, data?.capabilities.vision, connection?.astronautId]);
 
@@ -206,7 +216,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
       key,
       astronautId: aid,
     });
-    setAutomatic(false);
+    setAutomatic(true);
     setLocalError('');
   }
 
@@ -387,20 +397,22 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
                 {cameraSession && (
                   data?.capabilities.vision ? (
                     <>
-                      <Text style={styles.text}>Envía un fotograma cada 20 segundos mientras la cámara está activa.</Text>
+                      <Text style={styles.text}>
+                        {automatic
+                          ? 'Observación continua automática activa (1 fotograma cada 13s · 5 análisis/min).'
+                          : 'Observación automática en pausa. Pulsa reanudar para continuar.'}
+                      </Text>
                       <View style={styles.row}>
                         <Button
                           disabled={cameraStatus !== 'live'}
-                          title={automatic ? 'Detener observación' : 'Iniciar observación'}
+                          title={automatic ? 'Pausar observación' : 'Reanudar observación'}
                           onPress={() => setAutomatic(v => !v)}
                         />
-                        {!automatic && (
-                          <Button
-                            disabled={pending || cameraStatus !== 'live'}
-                            title="Analizar ahora"
-                            onPress={() => void analyze()}
-                          />
-                        )}
+                        <Button
+                          disabled={pending || cameraStatus !== 'live' || isProcessingAi}
+                          title="Analizar ahora"
+                          onPress={() => void analyze()}
+                        />
                       </View>
                     </>
                   ) : (

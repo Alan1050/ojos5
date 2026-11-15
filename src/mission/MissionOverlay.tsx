@@ -28,7 +28,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
   const [activeSession, setActiveSession] = useState<SessionCreated | null>(null);
   const [localError, setLocalError] = useState('');
   const [expanded, setExpanded] = useState(true);
-  const [automatic, setAutomatic] = useState(false);
+  const [automatic, setAutomatic] = useState(true);
   const [isProcessingAi, setIsProcessingAi] = useState(false);
   const [aiStatusText, setAiStatusText] = useState('');
 
@@ -70,7 +70,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
 
         const hashMatch = typeof window !== 'undefined' && window.location?.hash ? window.location.hash.match(/astronautId=([ABC])/i) : null;
         const storedAid = typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem('neuroorbit-astronautId') as AstronautId | null) : null;
-        const targetAid = (hashMatch?.[1]?.toUpperCase() as AstronautId) || storedAid;
+        const targetAid = (hashMatch?.[1]?.toUpperCase() as AstronautId) || storedAid || 'A';
 
         if (targetAid && session.crewKeys[targetAid] && (!connection || connection.astronautId !== targetAid)) {
           const conn: Connection = {
@@ -80,6 +80,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
             astronautId: targetAid,
           };
           setConnection(conn);
+          setAutomatic(true);
           if (typeof sessionStorage !== 'undefined') {
             sessionStorage.setItem('neuroorbit-ojos', JSON.stringify(conn));
             sessionStorage.setItem('neuroorbit-astronautId', targetAid);
@@ -113,7 +114,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
     if (typeof window !== 'undefined' && window.location) {
       window.location.hash = `astronautId=${aid}`;
     }
-    setAutomatic(false);
+    setAutomatic(true);
     setLocalError('');
   };
 
@@ -142,7 +143,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
         setLocalError(`Límite de Google AI (5/min). Enfriando por ${remaining}s…`);
         return;
       }
-      if (inFlightRef.current || now - lastExecutionRef.current < 22000) {
+      if (inFlightRef.current || now - lastExecutionRef.current < 13000) {
         return;
       }
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
@@ -208,7 +209,7 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
     };
 
     void sample();
-    const timer = setInterval(() => void sample(), 22000);
+    const timer = setInterval(() => void sample(), 13000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [automatic, cameraStatus, data?.capabilities.vision, cameraSession, connection?.astronautId]);
 
@@ -390,16 +391,18 @@ export default function MissionOverlay({ cameraStatus, capture }: { cameraStatus
                 data?.capabilities.vision ? (
                   <section>
                     <h2>Observar mi entorno</h2>
-                    <p>Al iniciar se envía un fotograma cada 20 segundos mientras la cámara está activa.</p>
+                    <p>
+                      {automatic
+                        ? 'Observación continua automática activa (1 fotograma cada 13s · 5 análisis/min).'
+                        : 'Observación automática en pausa. Pulsa reanudar para continuar.'}
+                    </p>
                     <div className="mission-hud__actions">
                       <button disabled={cameraStatus !== 'live'} onClick={() => setAutomatic(v => !v)}>
-                        {automatic ? 'Detener observación' : 'Iniciar observación'}
+                        {automatic ? 'Pausar observación' : 'Reanudar observación'}
                       </button>
-                      {!automatic && (
-                        <button disabled={pending || cameraStatus !== 'live'} onClick={() => void analyze()}>
-                          Analizar ahora
-                        </button>
-                      )}
+                      <button disabled={pending || cameraStatus !== 'live' || isProcessingAi} onClick={() => void analyze()}>
+                        Analizar ahora
+                      </button>
                     </div>
                   </section>
                 ) : (
